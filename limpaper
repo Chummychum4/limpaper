@@ -1,0 +1,432 @@
+#!/usr/bin/env bash
+# limpaper - terminal animated wallpaper picker for mpvpaper (Hyprland/wlroots)
+#
+# Copyright (C) 2026 teorvalent
+# Licensed under the GNU General Public License v3.0 or later.
+# See the LICENSE file, or <https://www.gnu.org/licenses/>.
+
+set -uo pipefail
+
+WALLPAPER_DIR="${LIMPAPER_DIR:-$HOME/wallpapers/animated}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/limpaper"
+STATE_FILE="$STATE_DIR/current"
+BASELINE_FILE="$STATE_DIR/baseline"
+FRAME_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/limpaper/frames"
+OUTPUT="${LIMPAPER_OUTPUT:-*}"
+MPV_OPTS="no-audio loop panscan=1.0 hwdec=auto"
+
+# Recolour the desktop from the wallpaper's first frame (0 to disable)
+THEME="${LIMPAPER_THEME:-1}"
+# Seconds into the video to sample; empty means the first frame
+FRAME_AT="${LIMPAPER_FRAME_AT:-}"
+
+# Recognised wallpaper formats — add extensions here and they are picked up everywhere
+EXTS=(mp4 mkv webm gif mov avi m4v)
+
+BOLD=$'\e[1m'; DIM=$'\e[2m'; RESET=$'\e[0m'
+CYAN=$'\e[36m'; GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'
+
+die() { printf '%s%s%s\n' "$RED" "$*" "$RESET" >&2; exit 1; }
+
+command -v mpvpaper >/dev/null || die "mpvpaper is not installed."
+[[ -d $WALLPAPER_DIR ]] || die "Wallpaper directory not found: $WALLPAPER_DIR"
+mkdir -p "$STATE_DIR"
+
+# Build the -iname predicate list for find from $EXTS
+build_name_args() {
+    NAME_ARGS=()
+    local e
+    for e in "${EXTS[@]}"; do
+        ((${#NAME_ARGS[@]})) && NAME_ARGS+=(-o)
+        NAME_ARGS+=(-iname "*.$e")
+    done
+}
+build_name_args
+
+# ── Discovery ─────────────────────────────────────────────────────────────────
+# Both scans run on every menu redraw, so folders and files added while limpaper
+# is open show up on the next screen without restarting.
+
+# CATEGORIES=( <dir names> ) — every non-hidden top-level folder, alphabetical
+scan_categories() {
+    mapfile -t CATEGORIES < <(
+        find -L "$WALLPAPER_DIR" -mindepth 1 -maxdepth 1 -type d \
+            -not -name '.*' -printf '%f\n' 2>/dev/null | sort
+    )
+}
+
+# RELS=( <paths relative to the category> ) — recursive, so wallpapers sitting in
+# newly created sub-folders are numbered alongside the loose ones.
+# Ordered by depth first (loose files, then sub-folders), alphabetical within.
+scan_wallpapers() {
+    local cat=$1
+    mapfile -t RELS < <(
+        find -L "$WALLPAPER_DIR/$cat" -type f -not -name '.*' \
+            \( "${NAME_ARGS[@]}" \) -printf '%P\n' 2>/dev/null |
+            awk -F/ '{print NF "\t" $0}' | sort -t$'\t' -k1,1n -k2,2 | cut -f2-
+    )
+}
+
+count_wallpapers() {
+    find -L "$WALLPAPER_DIR/$1" -type f -not -name '.*' \
+        \( "${NAME_ARGS[@]}" \) -printf . 2>/dev/null | wc -c
+}
+
+# ── Display helpers ───────────────────────────────────────────────────────────
+# Strip extension, trailing resolution suffix, and separators
+pretty() {
+    local n=${1##*/}
+    n=${n%.*}
+    n=${n%.[0-9]*x[0-9]*}
+    n=${n//[-_]/ }
+    printf '%s' "$n"
+}
+
+header() {
+    clear
+    printf '%s' "$CYAN$BOLD"
+    cat <<'EOF'
+  ┬  ┬┌┬┐┌─┐┌─┐┌─┐┌─┐┬─┐
+  │  │││││├─┘├─┤├─┘├┤ ├┬┘
+  ┴─┘┴┴ ┴┴  ┴ ┴┴  └─┘┴└─
+EOF
+    printf '%s' "$RESET"
+    if pgrep -x mpvpaper >/dev/null 2>&1 && [[ -f $STATE_FILE ]]; then
+        printf '  %scurrent:%s %s\n' "$DIM" "$RESET" "$(pretty "$(<"$STATE_FILE")")"
+    else
+        printf '  %sno wallpaper running%s\n' "$DIM" "$RESET"
+    fi
+    printf '\n'
+}
+
+notice() { printf '  %s%s%s\n' "$YELLOW" "$1" "$RESET"; }
+pause()  { printf '\n'; read -rsn1 -p "  Press any key..." _; }
+
+# ── Theming ───────────────────────────────────────────────────────────────────
+# Colours are handed to caelestia's own "dynamic" scheme rather than written by
+# hand, so foot / quickshell / gtk / qt / fuzzel / btop all follow one source of
+# truth. caelestia only accepts still images, so a frame is extracted first.
+
+theming_available() {
+    [[ $THEME == 1 ]] &&
+        command -v caelestia >/dev/null 2>&1 &&
+        command -v ffmpeg >/dev/null 2>&1
+}
+
+# Essentially-uniform dark frame => the video fades in from black, so frame 0
+# would produce a palette of nothing but grey.
+frame_is_blank() {
+    python3 - "$1" <<'PY' 2>/dev/null
+import sys
+from PIL import Image, ImageStat
+im = Image.open(sys.argv[1]).convert("L")
+im.thumbnail((64, 64))
+st = ImageStat.Stat(im)
+sys.exit(0 if st.mean[0] < 6 and st.stddev[0] < 6 else 1)
+PY
+}
+
+# Echo the path of a cached still for $1, extracting it if needed
+frame_for() {
+    local video=$1 key out
+    key=$(printf '%s %s %s' "$video" "$(stat -c %Y "$video" 2>/dev/null)" "$FRAME_AT" |
+        sha256sum | cut -c1-32)
+    out="$FRAME_CACHE/$key.png"
+
+    if [[ ! -s $out ]]; then
+        mkdir -p "$FRAME_CACHE"
+        ffmpeg -y -loglevel error ${FRAME_AT:+-ss "$FRAME_AT"} \
+            -i "$video" -frames:v 1 -update 1 "$out" \
+            </dev/null >/dev/null 2>&1 || return 1
+
+        if frame_is_blank "$out"; then
+            local dur at
+            dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \
+                "$video" 2>/dev/null)
+            at=$(awk -v d="${dur:-0}" \
+                'BEGIN{t=d*0.15; if(t<0.5)t=0.5; if(t>10)t=10; printf "%.2f", t}')
+            ffmpeg -y -loglevel error -ss "$at" -i "$video" -frames:v 1 -update 1 \
+                "$out" </dev/null >/dev/null 2>&1 || true
+        fi
+    fi
+
+    [[ -s $out ]] || return 1
+    printf '%s' "$out"
+}
+
+# Remember the pre-limpaper scheme once, so "no wallpaper" can go back to it
+save_baseline() {
+    [[ -f $BASELINE_FILE ]] && return 0
+
+    local props
+    mapfile -t props < <(caelestia scheme get -n -f -m -v 2>/dev/null)
+    ((${#props[@]} == 4)) || return 1
+    # Already dynamic: whatever it was derived from is not recoverable
+    [[ ${props[0]} == dynamic ]] && return 1
+
+    {
+        printf 'name=%s\n'      "${props[0]}"
+        printf 'flavour=%s\n'   "${props[1]}"
+        printf 'mode=%s\n'      "${props[2]}"
+        printf 'variant=%s\n'   "${props[3]}"
+        printf 'wallpaper=%s\n' "$(caelestia wallpaper 2>/dev/null)"
+    } > "$BASELINE_FILE"
+}
+
+theme_apply() {
+    theming_available || return 0
+
+    local frame
+    save_baseline
+    printf '%s  theming from first frame...%s\r' "$DIM" "$RESET"
+
+    if ! frame=$(frame_for "$1"); then
+        printf '\033[2K'
+        notice "Could not extract a frame; colours left unchanged."
+        return 1
+    fi
+
+    # Point caelestia at the still, then make sure the scheme is deriving from it.
+    # "scheme set -n dynamic" is a no-op when already dynamic, in which case the
+    # wallpaper call above has already recomputed the palette.
+    caelestia wallpaper -f "$frame" >/dev/null 2>&1
+    caelestia scheme set -n dynamic >/dev/null 2>&1
+
+    local mode variant
+    mode=$(caelestia scheme get -m 2>/dev/null)
+    variant=$(caelestia scheme get -v 2>/dev/null)
+    printf '\033[2K%s  colours: dynamic %s %s%s\n' "$DIM" "$mode" "$variant" "$RESET"
+}
+
+theme_restore() {
+    theming_available || return 0
+
+    if [[ ! -f $BASELINE_FILE ]]; then
+        notice "No saved baseline scheme; colours left as they are."
+        return 0
+    fi
+
+    local k v name='' flavour='' mode='' variant='' wallpaper=''
+    while IFS='=' read -r k v; do
+        case $k in
+            name) name=$v ;; flavour) flavour=$v ;; mode) mode=$v ;;
+            variant) variant=$v ;; wallpaper) wallpaper=$v ;;
+        esac
+    done < "$BASELINE_FILE"
+
+    [[ -n $name ]] || return 1
+
+    # Scheme first: once it is no longer dynamic, restoring the still wallpaper
+    # below cannot pull the palette back off the image.
+    caelestia scheme set -n "$name" -f "$flavour" -m "$mode" -v "$variant" \
+        >/dev/null 2>&1
+    [[ -n $wallpaper && -f $wallpaper ]] &&
+        caelestia wallpaper -f "$wallpaper" >/dev/null 2>&1
+
+    printf '%s  colours: %s %s %s%s\n' "$DIM" "$name" "$flavour" "$mode" "$RESET"
+}
+
+# ── Playback ──────────────────────────────────────────────────────────────────
+apply() {
+    local file=$1
+    [[ -f $file ]] || { notice "File no longer exists: $file"; return 1; }
+
+    pkill -x mpvpaper >/dev/null 2>&1
+    sleep 0.2
+
+    setsid mpvpaper -f -o "$MPV_OPTS" "$OUTPUT" "$file" >/dev/null 2>&1 &
+    disown 2>/dev/null
+
+    printf '%s\n' "$file" > "$STATE_FILE"
+    printf '%s✓ Now playing:%s %s\n' "$GREEN" "$RESET" "$(pretty "$file")"
+    printf '%s  %s%s\n' "$DIM" "$file" "$RESET"
+
+    theme_apply "$file"
+}
+
+stop_wallpaper() {
+    if pkill -x mpvpaper >/dev/null 2>&1; then
+        printf '%s✓ Wallpaper stopped.%s\n' "$GREEN" "$RESET"
+    else
+        notice "No wallpaper is running."
+    fi
+
+    # $STATE_FILE is kept so --restore still works after a stop
+    theme_restore
+}
+
+# ── Category menu ─────────────────────────────────────────────────────────────
+choose_category() {
+    local msg=''
+    while true; do
+        scan_categories
+
+        header
+        if ((${#CATEGORIES[@]} == 0)); then
+            notice "No category folders in $WALLPAPER_DIR"
+            printf '  %sCreate one and press any key to rescan.%s\n' "$DIM" "$RESET"
+            pause
+            continue
+        fi
+
+        printf '  %sCategories%s %s(%d)%s\n\n' \
+            "$BOLD" "$RESET" "$DIM" "${#CATEGORIES[@]}" "$RESET"
+
+        local i width=0
+        for i in "${!CATEGORIES[@]}"; do
+            ((${#CATEGORIES[i]} > width)) && width=${#CATEGORIES[i]}
+        done
+        for i in "${!CATEGORIES[@]}"; do
+            printf '   %s%2d%s  %-*s  %s(%s)%s\n' \
+                "$CYAN" "$((i + 1))" "$RESET" \
+                "$width" "${CATEGORIES[i]}" \
+                "$DIM" "$(count_wallpapers "${CATEGORIES[i]}")" "$RESET"
+        done
+
+        printf '\n   %sr%s   rescan folders\n' "$YELLOW" "$RESET"
+        printf '   %ss%s   stop wallpaper\n' "$YELLOW" "$RESET"
+        printf '   %sq%s   quit\n\n' "$YELLOW" "$RESET"
+        [[ -n $msg ]] && { notice "$msg"; msg=''; }
+
+        local choice
+        read -rp "  Select category > " choice
+        case $choice in
+            q|Q|'') exit 0 ;;
+            r|R) ;;   # loop re-scans on every pass
+            s|S) stop_wallpaper; pause ;;
+            *[!0-9]*) msg="Not a number: $choice" ;;
+            *)
+                if ((choice >= 1 && choice <= ${#CATEGORIES[@]})); then
+                    choose_wallpaper "${CATEGORIES[choice - 1]}"
+                else
+                    msg="Pick 1-${#CATEGORIES[@]}."
+                fi
+                ;;
+        esac
+    done
+}
+
+# ── Wallpaper menu ────────────────────────────────────────────────────────────
+choose_wallpaper() {
+    local cat=$1 msg=''
+    while true; do
+        # Category could have been renamed or deleted since the menu was drawn
+        [[ -d $WALLPAPER_DIR/$cat ]] || { notice "Category \"$cat\" is gone."; pause; return; }
+
+        scan_wallpapers "$cat"
+
+        header
+        printf '  %s%s%s %s(%d)%s\n\n' \
+            "$BOLD" "$cat" "$RESET" "$DIM" "${#RELS[@]}" "$RESET"
+
+        if ((${#RELS[@]} == 0)); then
+            notice "No wallpapers here yet."
+            printf '  %sDrop files in %s/%s and press any key.%s\n' \
+                "$DIM" "$WALLPAPER_DIR" "$cat" "$RESET"
+            printf '\n   %sb%s   back\n\n' "$YELLOW" "$RESET"
+            local k; read -rn1 -p "  > " k; printf '\n'
+            [[ $k == b || $k == B || $k == q || $k == Q ]] && return
+            continue
+        fi
+
+        # Numbering is continuous; sub-folders get a header when the group changes
+        local i rel sub group=''
+        for i in "${!RELS[@]}"; do
+            rel=${RELS[i]}
+            if [[ $rel == */* ]]; then sub=${rel%/*}; else sub=''; fi
+            if [[ $sub != "$group" ]]; then
+                group=$sub
+                [[ -n $group ]] && printf '\n   %s%s/%s\n' "$DIM" "$group" "$RESET"
+            fi
+            printf '   %s%2d%s  %s\n' "$CYAN" "$((i + 1))" "$RESET" "$(pretty "$rel")"
+        done
+
+        printf '\n   %sR%s   random from this category\n' "$YELLOW" "$RESET"
+        printf '   %sr%s   rescan files\n' "$YELLOW" "$RESET"
+        printf '   %sb%s   back\n' "$YELLOW" "$RESET"
+        printf '   %sq%s   quit\n\n' "$YELLOW" "$RESET"
+        [[ -n $msg ]] && { notice "$msg"; msg=''; }
+
+        local choice
+        read -rp "  Select wallpaper > " choice
+        case $choice in
+            q|Q) exit 0 ;;
+            b|B|'') return ;;
+            r) ;;   # loop re-scans on every pass
+            R)
+                apply "$WALLPAPER_DIR/$cat/${RELS[RANDOM % ${#RELS[@]}]}"
+                pause
+                ;;
+            *[!0-9]*) msg="Not a number: $choice" ;;
+            *)
+                if ((choice >= 1 && choice <= ${#RELS[@]})); then
+                    apply "$WALLPAPER_DIR/$cat/${RELS[choice - 1]}"
+                    pause
+                else
+                    msg="Pick 1-${#RELS[@]}."
+                fi
+                ;;
+        esac
+    done
+}
+
+# ── CLI flags ─────────────────────────────────────────────────────────────────
+case ${1-} in
+    -r|--restore)
+        [[ -f $STATE_FILE ]] || die "No saved wallpaper."
+        apply "$(<"$STATE_FILE")"
+        ;;
+    -R|--random)
+        mapfile -t all < <(find -L "$WALLPAPER_DIR" -type f -not -name '.*' \
+            \( "${NAME_ARGS[@]}" \) 2>/dev/null | sort)
+        ((${#all[@]})) || die "No wallpapers found under $WALLPAPER_DIR"
+        apply "${all[RANDOM % ${#all[@]}]}"
+        ;;
+    -l|--list)
+        scan_categories
+        for c in "${CATEGORIES[@]}"; do
+            printf '%s%s%s (%s)\n' "$BOLD" "$c" "$RESET" "$(count_wallpapers "$c")"
+            scan_wallpapers "$c"
+            for r in "${RELS[@]}"; do printf '  %s\n' "$r"; done
+        done
+        ;;
+    -s|--stop) stop_wallpaper ;;
+    -c|--current)
+        [[ -f $STATE_FILE ]] && cat "$STATE_FILE" || printf 'none\n'
+        ;;
+    -h|--help)
+        cat <<EOF
+limpaper - animated wallpaper picker for mpvpaper
+
+Usage: limpaper [option]
+
+  (no args)         interactive category/wallpaper picker
+  -l, --list        print every category and wallpaper found
+  -r, --restore     re-apply the last used wallpaper
+  -R, --random      apply a random wallpaper from any category
+  -s, --stop        kill mpvpaper and restore the baseline colour scheme
+  -c, --current     print the path of the current wallpaper
+  -h, --help        show this help
+
+Categories are just folders under the wallpaper root. New folders and files are
+detected on every menu redraw, including ones nested inside a category.
+
+Formats: ${EXTS[*]}
+
+Theming:
+  Selecting a wallpaper extracts its first frame and hands it to caelestia's
+  "dynamic" scheme, which recolours foot, the quickshell bar, gtk, qt, fuzzel
+  and btop. Mode (light/dark) and variant are chosen from the frame.
+  --stop puts back the scheme saved in $BASELINE_FILE.
+
+Environment:
+  LIMPAPER_DIR      wallpaper root (default: ~/wallpapers/animated)
+  LIMPAPER_OUTPUT   mpvpaper output, e.g. DP-1 (default: * = all)
+  LIMPAPER_THEME    0 to leave colours alone entirely (default: 1)
+  LIMPAPER_FRAME_AT seconds to sample instead of the first frame, for when
+                    frame 0 is not representative, e.g. LIMPAPER_FRAME_AT=3
+EOF
+        ;;
+    '') choose_category ;;
+    *) die "Unknown option: $1  (try --help)" ;;
+esac
