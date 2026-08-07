@@ -29,23 +29,106 @@ dynamic colour scheme.
   Select category >
 ```
 
-## Requirements
+## Dependencies
 
-- `mpvpaper` — plays the wallpaper
-- `bash`, `awk`, `find` (GNU), `sha256sum`
-- `ffmpeg` — only for theming, to extract a frame
-- `python3` with Pillow — only for theming, to detect fade-in-from-black frames
-- `caelestia-cli` — only for theming
+A wlroots-based Wayland compositor is required — Hyprland, Sway, river and
+similar. mpvpaper draws through `wlr-layer-shell`, which GNOME and KDE do not
+implement.
 
-Without ffmpeg or caelestia, limpaper still works as a plain wallpaper picker.
+| | Needed for | Notes |
+| --- | --- | --- |
+| `mpvpaper` | everything | plays the video as the background |
+| `bash` 4.3+, GNU `findutils`, `gawk`, `coreutils` | everything | `mapfile`, `find -printf`, `sha256sum` |
+| `ffmpeg` | theming | extracts the frame the palette comes from |
+| `python3` + Pillow | theming | detects videos that fade in from black |
+| `caelestia-cli` | theming | owns the colour scheme limpaper drives |
+
+Only the first two rows are mandatory. Without ffmpeg, Pillow or caelestia,
+limpaper skips recolouring and works as a plain wallpaper picker — no errors, no
+configuration needed. `LIMPAPER_THEME=0` disables it explicitly.
 
 ## Install
 
+### Arch Linux
+
+`mpvpaper` and `caelestia-cli` are in the AUR, the rest in `extra`. With an AUR
+helper such as `yay` or `paru`:
+
 ```sh
+# mandatory
+yay -S mpvpaper
+
+# optional, for wallpaper-matched colours
+sudo pacman -S ffmpeg python-pillow
+yay -S caelestia-cli
+```
+
+Then:
+
+```sh
+git clone https://github.com/Chummychum4/limpaper.git
+cd limpaper
 install -Dm755 limpaper ~/.local/bin/limpaper
 ```
 
-Then put your videos in category folders:
+### Debian / Ubuntu
+
+`mpvpaper` is not packaged for Debian, so it has to be built. Everything else is
+in the archive:
+
+```sh
+# mandatory: build tools and mpvpaper's own dependencies
+sudo apt install build-essential meson ninja-build pkg-config git \
+                 libmpv-dev libwayland-dev libwayland-bin \
+                 wayland-protocols libegl-dev
+
+git clone https://github.com/GhostNaN/mpvpaper.git
+cd mpvpaper
+meson setup build
+ninja -C build
+sudo ninja -C build install
+cd ..
+```
+
+```sh
+# optional, for wallpaper-matched colours
+sudo apt install ffmpeg python3-pil
+```
+
+`caelestia-cli` has no Debian package — it is built around the Arch-based
+caelestia dotfiles. On Debian, expect to run limpaper without theming unless you
+install caelestia yourself.
+
+Then:
+
+```sh
+git clone https://github.com/Chummychum4/limpaper.git
+cd limpaper
+install -Dm755 limpaper ~/.local/bin/limpaper
+```
+
+### PATH
+
+`~/.local/bin` is on the default `PATH` on Arch and on Debian 12+, but only if
+it exists when your shell starts — the install command above creates it, so open
+a new shell afterwards. Check with:
+
+```sh
+command -v limpaper
+```
+
+If it prints nothing, add this to your shell config:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Note that your compositor does not read your shell config. If you launch
+limpaper from a keybind, use the full path — see [A keybind](#a-keybind).
+
+## Setup
+
+Put your videos in category folders:
 
 ```
 ~/wallpapers/animated/
