@@ -1,0 +1,48 @@
+# Build and install the latest limpaper from git:
+#   git clone https://github.com/Chummychum4/limpaper.git
+#   cd limpaper/packaging/arch && makepkg -si
+# mpvpaper may come from the AUR; if makepkg cannot find it, install it first
+# with an AUR helper (yay -S mpvpaper) or use ../../install.sh instead.
+
+pkgname=limpaper-git
+_pkgname=limpaper
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Animated wallpaper manager with a GUI, a TUI and online wallpaper browsing"
+arch=('any')
+url="https://github.com/Chummychum4/limpaper"
+license=('GPL-3.0-or-later')
+depends=('python' 'mpv' 'mpvpaper')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+optdepends=(
+    'pyside6: the graphical app'
+    'qt6-multimedia-ffmpeg: animated previews in the graphical app'
+    'python-textual: the terminal app'
+    'ffmpeg: thumbnails and desktop theming'
+    'python-pillow: detect videos that fade in from black when theming'
+    'caelestia-cli: match desktop colours to the wallpaper'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$_pkgname"
+    local v
+    v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/limpaper/__init__.py)
+    printf '%s.r%s.g%s' "$v" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd "$_pkgname"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "$_pkgname"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 src/limpaper/assets/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/limpaper.png"
+    install -Dm644 packaging/linux/limpaper.desktop "$pkgdir/usr/share/applications/limpaper.desktop"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$_pkgname/README.md"
+}

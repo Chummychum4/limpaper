@@ -1,258 +1,337 @@
 # limpaper
 
-A terminal picker for animated wallpapers on Wayland. Browse your video
-wallpapers by category, pick one, and it plays as your desktop background via
-[mpvpaper](https://github.com/GhostNaN/mpvpaper).
+Live wallpapers for Linux and Windows. Keep your videos in folders, pick one in a sleek GUI or a fast
+terminal UI, and it plays as your desktop background. You can also browse and download new live
+wallpapers from the web without leaving the app.
 
-Optionally it also recolours your desktop to match the wallpaper, by handing the
-wallpaper's first frame to [caelestia](https://github.com/caelestia-dots)'s
-dynamic colour scheme.
+![The limpaper GUI: library grid with categories and a now-playing card](docs/screenshots/gui-library.png)
 
-```
-  ┬  ┬┌┬┐┌─┐┌─┐┌─┐┌─┐┬─┐
-  │  │││││├─┘├─┤├─┘├┤ ├┬┘
-  ┴─┘┴┴ ┴┴  ┴ ┴┴  └─┘┴└─
-  current: cyberpunk nissan r31
+- **GUI**: a dark, card-based library with thumbnails, categories, favourites, search, drag and drop,
+  and a now-playing card.
+- **TUI**: the same library from the keyboard, built on [Textual](https://textual.textualize.io).
+- **Discover**: browse, preview and download wallpapers from MotionBGs, MoeWalls and Wallhaven,
+  in the GUI, the TUI or the CLI.
+- **CLI**: every action is also a command, for keybinds and autostart.
+- **Desktop colours** (Linux, optional): recolour your desktop from each wallpaper through
+  [caelestia](https://github.com/caelestia-dots).
 
-  Categories (5)
+> [!WARNING]
+> **Wallpapers in Discover are not ours.** They come from third-party websites, are not made,
+> hosted or checked by limpaper, and **may contain malicious software**. limpaper only keeps files
+> that are real videos or images (see [what it checks](#discover-online-wallpapers)), but that cannot
+> guarantee a file is safe. Download at your own risk, and respect each site's terms and the
+> artists' rights.
 
-    1  abstract    (2)
-    2  cars        (12)
-    3  characters  (23)
-    4  misc        (9)
-    5  scenery     (21)
+## Contents
 
-   r   rescan folders
-   s   stop wallpaper
-   q   quit
-
-  Select category >
-```
-
-## Dependencies
-
-A wlroots-based Wayland compositor is required — Hyprland, Sway, river and
-similar. mpvpaper draws through `wlr-layer-shell`, which GNOME and KDE do not
-implement.
-
-| | Needed for | Notes |
-| --- | --- | --- |
-| `mpvpaper` | everything | plays the video as the background |
-| `bash` 4.3+, GNU `findutils`, `gawk`, `coreutils` | everything | `mapfile`, `find -printf`, `sha256sum` |
-| `ffmpeg` | theming | extracts the frame the palette comes from |
-| `python3` + Pillow | theming | detects videos that fade in from black |
-| `caelestia-cli` | theming | owns the colour scheme limpaper drives |
-
-Only the first two rows are mandatory. Without ffmpeg, Pillow or caelestia,
-limpaper skips recolouring and works as a plain wallpaper picker — no errors, no
-configuration needed. `LIMPAPER_THEME=0` disables it explicitly.
+- [Install](#install): [Windows](#windows) · [Arch Linux](#arch-linux) · [Debian / Ubuntu](#debian--ubuntu) · [From source](#from-source)
+- [Using limpaper](#using-limpaper): [GUI](#gui) · [TUI](#tui) · [Commands](#commands)
+- [Adding wallpapers](#adding-wallpapers)
+- [Discover (online wallpapers)](#discover-online-wallpapers)
+- [Desktop colours](#desktop-colours-linux)
+- [Configuration](#configuration) · [Files](#files) · [Limitations](#limitations)
 
 ## Install
 
+### Windows
+
+**[⬇ Download the installer (limpaper-setup-windows-x64.exe)](https://github.com/Chummychum4/limpaper/releases/latest/download/limpaper-setup-windows-x64.exe)**
+
+or the **[portable zip](https://github.com/Chummychum4/limpaper/releases/latest/download/limpaper-windows-x64-portable.zip)**
+(unzip anywhere and run `limpaper.exe`). All builds are on the [Releases page](https://github.com/Chummychum4/limpaper/releases).
+
+- The installer is per-user, so it needs no administrator rights. It adds a Start menu entry and
+  can optionally restore your wallpaper at login.
+- [mpv](https://mpv.io) is bundled. Videos play behind your desktop icons on Windows 10 and 11.
+- `limpaper-cli.exe` in the install folder runs the TUI (`limpaper-cli tui`) and the commands below.
+- The builds are not code-signed yet, so SmartScreen may show "Windows protected your PC". Click
+  **More info → Run anyway** if you trust this repository.
+
 ### Arch Linux
 
-`mpvpaper` and `caelestia-cli` are in the AUR, the rest in `extra`. With an AUR
-helper such as `yay` or `paru`:
+One command installs everything, including mpvpaper (from the repos, your AUR helper, or the AUR
+directly):
 
 ```sh
-# mandatory
-yay -S mpvpaper
-
-# optional, for wallpaper-matched colours
-sudo pacman -S ffmpeg python-pillow
-yay -S caelestia-cli
+curl -fsSL https://raw.githubusercontent.com/Chummychum4/limpaper/main/install.sh | bash
 ```
 
-Then:
+<details>
+<summary>Or as a pacman package (PKGBUILD)</summary>
 
 ```sh
+yay -S mpvpaper                 # mpvpaper may only be in the AUR
 git clone https://github.com/Chummychum4/limpaper.git
-cd limpaper
-install -Dm755 limpaper ~/.local/bin/limpaper
+cd limpaper/packaging/arch
+makepkg -si
+sudo pacman -S --needed pyside6 qt6-multimedia-ffmpeg python-textual ffmpeg python-pillow
 ```
+</details>
+
+<details>
+<summary>Or by hand</summary>
+
+```sh
+sudo pacman -S --needed python mpv ffmpeg python-pillow pyside6 qt6-multimedia-ffmpeg python-textual
+yay -S mpvpaper
+python -m venv --system-site-packages ~/.local/share/limpaper/venv
+~/.local/share/limpaper/venv/bin/pip install https://github.com/Chummychum4/limpaper/archive/main.tar.gz
+ln -s ~/.local/share/limpaper/venv/bin/limpaper ~/.local/bin/limpaper
+```
+</details>
 
 ### Debian / Ubuntu
 
-`mpvpaper` is not packaged for Debian, so it has to be built. Everything else is
-in the archive:
+The same command works on Debian, Ubuntu, Mint, Pop!_OS and their relatives. mpvpaper is built from
+source when your release does not package it:
 
 ```sh
-# mandatory: build tools and mpvpaper's own dependencies
+curl -fsSL https://raw.githubusercontent.com/Chummychum4/limpaper/main/install.sh | bash
+```
+
+<details>
+<summary>Or by hand</summary>
+
+```sh
+sudo apt install python3 python3-venv mpv ffmpeg python3-pil libegl1 libxkbcommon-x11-0 libxcb-cursor0
+
+# mpvpaper: use the package if your release has one…
+sudo apt install mpvpaper
+# …otherwise build it
 sudo apt install build-essential meson ninja-build pkg-config git \
-                 libmpv-dev libwayland-dev libwayland-bin \
-                 wayland-protocols libegl-dev
+                 libmpv-dev libwayland-dev libwayland-bin wayland-protocols libegl-dev
+git clone https://github.com/GhostNaN/mpvpaper.git && cd mpvpaper
+meson setup build && ninja -C build && sudo ninja -C build install && cd ..
 
-git clone https://github.com/GhostNaN/mpvpaper.git
-cd mpvpaper
-meson setup build
-ninja -C build
-sudo ninja -C build install
-cd ..
+python3 -m venv ~/.local/share/limpaper/venv
+~/.local/share/limpaper/venv/bin/pip install "limpaper[all] @ https://github.com/Chummychum4/limpaper/archive/main.tar.gz"
+ln -s ~/.local/share/limpaper/venv/bin/limpaper ~/.local/bin/limpaper
 ```
+</details>
+
+#### Installer options
+
+Pass options after `bash -s --`, e.g. `curl -fsSL …/install.sh | bash -s -- --no-gui`:
+
+| Option | Effect |
+| --- | --- |
+| `--no-gui` | skip the GUI (PySide6) |
+| `--no-tui` | skip the TUI (Textual) |
+| `--no-mpvpaper` | do not install or build mpvpaper |
+| `--ref <branch or tag>` | install something other than `main` |
+| `--uninstall` | remove limpaper; your wallpapers and settings are kept |
+
+The installer puts limpaper in a virtual environment under `~/.local/share/limpaper`, links the
+`limpaper` command into `~/.local/bin`, and adds an app-menu entry. Run `limpaper doctor` to check
+the setup.
+
+**Linux requirement:** a wlroots-based Wayland compositor such as Hyprland, Sway or river. mpvpaper
+draws through `wlr-layer-shell`, which GNOME and KDE do not implement.
+
+### From source
 
 ```sh
-# optional, for wallpaper-matched colours
-sudo apt install ffmpeg python3-pil
+pip install "limpaper[all] @ git+https://github.com/Chummychum4/limpaper.git"
 ```
 
-`caelestia-cli` has no Debian package — it is built around the Arch-based
-caelestia dotfiles. On Debian, expect to run limpaper without theming unless you
-install caelestia yourself.
+The extras are `tui` (Textual), `gui` (PySide6), `preview` (animated previews in the GUI) and
+`all`. The core and CLI need nothing beyond the Python standard library.
 
-Then:
+## Using limpaper
 
-```sh
-git clone https://github.com/Chummychum4/limpaper.git
-cd limpaper
-install -Dm755 limpaper ~/.local/bin/limpaper
+Run `limpaper` with no arguments: you get the TUI in a terminal and the GUI everywhere else (app
+menu, keybind, the Windows `.exe`). Use `limpaper gui` or `limpaper tui` to choose.
+
+### GUI
+
+| | |
+| --- | --- |
+| **Library** | Every wallpaper as a card. Category chips across the top: **All**, **★ Favourites**, **Recent**, then your folders. **Double-click** a card to play it; **right-click** to favourite, move, reveal or delete it. **Drop files or folders** anywhere on the window to import them into the current category. Right-click a category chip to rename, open or delete it. |
+| **Discover** | Pick a source, search or browse the latest, and select a card to see an animated preview. **Download & set as wallpaper** does both in one click. Scroll down to load more. |
+| **Settings** | Wallpaper folder, download category, mpv options, monitor, restore at login, desktop colours, safe search and previews. |
+| **Sidebar** | What is playing now, with **Stop** and **Shuffle**. |
+
+Shortcuts: `Ctrl+1/2/3` switch pages · `Ctrl+F` search · `Ctrl+R` random wallpaper · `F5` rescan.
+
+![Discover in the GUI, showing the third-party warning, source picker and detail panel](docs/screenshots/gui-discover.png)
+
+*(Thumbnails are replaced with placeholders in this screenshot; in the app you see each site's previews.)*
+
+### TUI
+
+![The limpaper TUI](docs/screenshots/tui-library.png)
+
+| Key | Action |
+| --- | --- |
+| `↑ ↓` / mouse | move; the left list picks a category, the right one a wallpaper |
+| `Tab` | switch between the category list, filter and wallpaper list |
+| `Enter` | play the selected wallpaper |
+| `/` | filter by name (`Esc` clears) |
+| `r` | random wallpaper from the current view |
+| `s` | stop the wallpaper |
+| `f` | toggle favourite |
+| `a` | add files or a folder to the current category |
+| `n` | new category |
+| `m` / `Delete` | move / delete the selected wallpaper |
+| `o` | **Discover**: browse and download online wallpapers |
+| `F5` | rescan |
+| `q` | quit |
+
+In Discover: `Enter` downloads and plays, `d` only downloads, `m` loads more results, `w` opens the
+page in your browser, `/` searches, `Esc` goes back.
+
+### Commands
+
+```
+limpaper                      TUI in a terminal, GUI otherwise
+limpaper gui | tui            choose explicitly
+limpaper list [category]      print categories and wallpapers
+limpaper apply <name|path>    play a wallpaper ("neon grid", "cars/r31.mp4" or a path)
+limpaper random [category]    play a random wallpaper
+limpaper restore              re-apply the last wallpaper (use this at login)
+limpaper stop                 stop the wallpaper and restore your colours
+limpaper current              print the current wallpaper's path
+limpaper add <files…> [-c category] [--move]
+limpaper sources              list online sources
+limpaper online <source> [search words] [--page N] [--get N [--apply]] [-c category]
+limpaper doctor               check dependencies and setup
 ```
 
-### PATH
+The 1.x flags still work: `-l` list, `-r` restore, `-R` random, `-s` stop, `-c` current.
 
-`~/.local/bin` is on the default `PATH` on Arch and on Debian 12+, but only if
-it exists when your shell starts — the install command above creates it, so open
-a new shell afterwards. Check with:
+#### Restore at login
 
-```sh
-command -v limpaper
+Turn on **Settings → Restore my wallpaper when I log in**. On Windows this adds a startup entry.
+On Linux it writes an XDG autostart entry, which most desktops honour. Hyprland and Sway ignore those
+by default, so add this to your compositor config instead:
+
+```
+exec-once = ~/.local/bin/limpaper restore        # Hyprland
+exec ~/.local/bin/limpaper restore               # Sway
 ```
 
-If it prints nothing, add this to your shell config:
+#### A keybind
 
-```sh
-export PATH="$HOME/.local/bin:$PATH"
+Compositors do not read your shell's `PATH`, so use the full path:
+
+```
+bind = SUPER, G, exec, ~/.local/bin/limpaper gui        # Hyprland: the GUI
+bind = SUPER SHIFT, G, exec, foot ~/.local/bin/limpaper  # the TUI in foot
+bind = SUPER, R, exec, ~/.local/bin/limpaper random      # shuffle
 ```
 
-Note that your compositor does not read your shell config. If you launch
-limpaper from a keybind, use the full path — see [A keybind](#a-keybind).
+## Adding wallpapers
 
-## Setup
-
-Put your videos in category folders:
+Wallpapers are plain files in category folders under your wallpaper folder. The default is
+`~/wallpapers/animated` on Linux and `%USERPROFILE%\Videos\limpaper` on Windows:
 
 ```
 ~/wallpapers/animated/
 ├── abstract/
 ├── cars/
-├── characters/
-├── misc/
-└── scenery/
+├── scenery/
+│   └── night/        ← sub-folders are listed inside their category
+└── downloads/        ← where Discover saves by default
 ```
 
-Any folder you create becomes a category automatically — there is nothing to
-register. New folders and files are picked up on every menu redraw, so you can
-add wallpapers while limpaper is open.
+Any way of getting files there works:
 
-Recognised formats: `mp4 mkv webm gif mov avi m4v`
+- **GUI:** drag files or whole folders onto the window, or click **＋ Add wallpapers**.
+- **TUI:** press `a` and type a path (a file or a folder).
+- **CLI:** `limpaper add ~/Downloads/*.mp4 -c scenery`
+- **Discover:** download from the online sources (below).
+- **File manager:** copy files in. limpaper notices new folders and files automatically.
 
-## Usage
+Formats: videos `mp4 mkv webm gif mov avi m4v`; stills `jpg jpeg png webp bmp`.
 
-```
-limpaper              interactive picker
-limpaper -l           print every category and wallpaper found
-limpaper -r           re-apply the last used wallpaper
-limpaper -R           apply a random wallpaper from any category
-limpaper -s           stop the wallpaper and restore the baseline colours
-limpaper -c           print the path of the current wallpaper
-limpaper -h           help
-```
+## Discover (online wallpapers)
 
-To bring your wallpaper back after a reboot, add `-r` to your compositor's
-autostart. For Hyprland:
+> [!CAUTION]
+> These wallpapers are made and hosted by **other websites, not by limpaper**, and **may contain
+> malicious software**. The app shows this warning before you first open Discover, keeps a banner
+> on the page, and prints it in the CLI. You can show the first-run warning again from Settings.
 
-```
-exec-once = ~/.local/bin/limpaper -r
-```
+<p align="center"><img src="docs/screenshots/gui-warning.png" width="520" alt="The warning shown before Discover opens"></p>
 
-### A keybind
-
-Hyprland's `PATH` does not include `~/.local/bin`, so use a full path:
-
-```
-bind = SUPER, G, exec, foot ~/.local/bin/limpaper
-```
-
-Or, if you use caelestia's Lua config, in `~/.config/caelestia/hypr-user.lua`:
-
-```lua
-local bin = os.getenv("HOME") .. "/.local/bin"
-hl.bind("SUPER + G", hl.dsp.exec_cmd("foot " .. bin .. "/limpaper"))
-```
-
-## Theming
-
-When a wallpaper is selected, limpaper extracts its first frame, hands the still
-to `caelestia wallpaper -f`, and switches the scheme to `dynamic`. caelestia
-then derives a Material You palette from the frame and applies it to your
-terminals, bar, GTK, Qt, fuzzel and btop. Open terminals recolour immediately —
-caelestia writes the escape sequences to their PTYs. Light/dark mode and the
-scheme variant are chosen from the frame too, so a bright wallpaper flips you to
-light mode.
-
-Nothing is written by hand: caelestia's own scheme system stays the single
-source of truth, so limpaper's colours are the same ones you would get from
-`caelestia wallpaper -f` on a still image.
-
-### Going back
-
-The first time limpaper changes your colours it records your current scheme in
-`~/.local/state/limpaper/baseline`. `limpaper -s` restores it — scheme first,
-then the wallpaper, because once the scheme is no longer `dynamic` restoring the
-still cannot pull the palette back off the image.
-
-The baseline is written once and never overwritten, so it can never end up
-recording `dynamic` as the thing to return to. If you want to reset it, delete
-the file while your preferred scheme is active and it will be recaptured on the
-next selection.
-
-### When the colours look wrong
-
-The palette is derived from a small thumbnail of the frame, and Material You's
-scoring weights saturation heavily, so a small vivid highlight can outweigh the
-dominant colour. A forest scene with sunlight through the trees may come out
-warm rather than green.
-
-If a wallpaper's first frame is not representative, sample further in:
-
-```sh
-LIMPAPER_FRAME_AT=3 limpaper
-```
-
-Frames whose first frame is essentially black — videos that fade in — are
-detected and re-sampled from 15% into the video automatically.
-
-## Environment
-
-| Variable | Default | Meaning |
+| Source | Kind | What you get |
 | --- | --- | --- |
-| `LIMPAPER_DIR` | `~/wallpapers/animated` | wallpaper root |
-| `LIMPAPER_OUTPUT` | `*` | mpvpaper output, e.g. `DP-1` |
-| `LIMPAPER_THEME` | `1` | `0` leaves colours alone entirely |
-| `LIMPAPER_FRAME_AT` | *(first frame)* | seconds into the video to sample |
+| [MotionBGs](https://motionbgs.com) | Live | Games, anime and film wallpapers; 1080p MP4 downloads and animated previews |
+| [MoeWalls](https://moewalls.com) | Live | Mostly anime and games; the original MP4 and animated previews |
+| [Wallhaven](https://wallhaven.cc) | Still | A huge library of images through the official API; safe-for-work only unless you turn safe search off |
 
-mpv options are set by `MPV_OPTS` at the top of the script, and default to
-`no-audio loop panscan=1.0 hwdec=auto`. `panscan=1.0` fills the screen instead
-of letterboxing.
+limpaper keeps a download only when **all** of these hold:
+
+- it came over **HTTPS** from that site's own domains, including after any redirect;
+- the server did not label it as a web page, program, script or archive;
+- its **first bytes are a real video or image container** (MP4/MOV, WebM/MKV, AVI, GIF, JPEG, PNG,
+  WebP, BMP). Anything else, such as a Windows program or a zip, is deleted;
+- it is under 2 GB.
+
+limpaper never opens or runs a downloaded file. It only hands videos to mpv, the same as playing a
+file yourself. These checks reduce the risk; they do not remove it. Keep your system and mpv up to
+date. The sites are scraped from their public pages, so a site redesign can break a source until
+limpaper is updated.
+
+## Desktop colours (Linux)
+
+When you play a wallpaper, limpaper can extract a frame, hand it to `caelestia wallpaper -f` and
+switch caelestia to its `dynamic` scheme. Your terminals, bar, GTK, Qt, fuzzel and btop then match
+the wallpaper, and bright wallpapers flip you to light mode. This needs `caelestia-cli` and
+`ffmpeg`. Without them limpaper skips this step quietly. Turn it off in Settings or with
+`LIMPAPER_THEME=0`.
+
+The first time colours change, your scheme is saved to `~/.local/state/limpaper/baseline`, and
+`limpaper stop` puts it back. Videos that fade in from black are re-sampled further in (this needs
+Pillow). If a video's first frame is not representative, set **Sample colours at** (or
+`LIMPAPER_FRAME_AT=3`) to use a later frame.
+
+## Configuration
+
+Settings are edited in the GUI and stored in `~/.config/limpaper/config.json`
+(`%APPDATA%\limpaper\config.json` on Windows). The 1.x environment variables still work and override
+the file for that run:
+
+| Variable | Setting | Default |
+| --- | --- | --- |
+| `LIMPAPER_DIR` | wallpaper folder | `~/wallpapers/animated` |
+| `LIMPAPER_OUTPUT` | mpvpaper output, e.g. `DP-1` | `*` (all monitors) |
+| `LIMPAPER_THEME` | `0` leaves colours alone | `1` |
+| `LIMPAPER_FRAME_AT` | seconds into the video to take colours from | first frame |
+| `LIMPAPER_MPV_OPTS` | mpv options | `no-audio loop panscan=1.0 hwdec=auto` |
+| `LIMPAPER_MPV` | path to `mpv.exe` (Windows) | auto-detected |
+
+`panscan=1.0` fills the screen instead of letterboxing.
 
 ## Files
 
-| Path | Contents |
-| --- | --- |
-| `~/.local/state/limpaper/current` | path of the last selected wallpaper |
-| `~/.local/state/limpaper/baseline` | scheme to restore when no wallpaper is active |
-| `~/.cache/limpaper/frames/` | extracted stills, keyed by path + mtime |
-
-The cache is safe to delete at any time.
+| Linux | Windows | Contents |
+| --- | --- | --- |
+| `~/.config/limpaper/config.json` | `%APPDATA%\limpaper\config.json` | settings |
+| `~/.local/state/limpaper/current` | `%LOCALAPPDATA%\limpaper\current` | last wallpaper (same file as 1.x) |
+| `~/.local/state/limpaper/history.json`, `favorites.json` | same folder | Recent and Favourites |
+| `~/.local/state/limpaper/baseline` | — | colour scheme to restore |
+| `~/.cache/limpaper/` | `%LOCALAPPDATA%\limpaper\cache\` | thumbnails and frames; safe to delete |
 
 ## Limitations
 
-- One wallpaper across all outputs. `pkill -x mpvpaper` stops every instance, so
-  per-monitor wallpapers would need per-output tracking.
-- Sub-folders inside a category are flattened into its listing with a heading
-  rather than being their own menu level, which keeps selection to a single
-  number but gets long if you nest deeply.
-- Theming assumes caelestia. The rest of the script does not.
+- One wallpaper across all monitors. On Windows the video spans the whole virtual desktop.
+- Linux playback needs a wlroots compositor (see above). GNOME and KDE are not supported.
+- Online sources depend on each site's current layout.
+
+## Development
+
+```sh
+pip install -e ".[all]" pytest
+pytest
+```
+
+The code is in `src/limpaper`: `library`, `core` and the `backends` are shared by `cli`, `tui` and
+`gui`, and online sources live in `sources/`. To publish a release, bump `__version__` in
+`src/limpaper/__init__.py` and push a tag such as `v2.0.0`. The *Release* workflow builds the
+Windows installer and portable zip, bundles mpv, and attaches them and `install.sh` to a GitHub
+release. Running the workflow by hand builds the same files as an artifact without releasing.
 
 ## Licence
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+GPL-3.0-or-later. See [LICENSE](LICENSE). The Windows build bundles [mpv](https://mpv.io)
+(GPLv2+/LGPLv2.1+) unmodified.

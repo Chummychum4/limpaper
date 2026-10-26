@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "limpaper"
+description = "Animated wallpaper manager with a GUI, a TUI and online wallpaper browsing"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.9"
+dynamic = ["version"]
+# The core (CLI, library, playback, downloads) uses the standard library only.
+dependencies = []
+classifiers = [
+    "Environment :: Console",
+    "Environment :: X11 Applications :: Qt",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Desktop Environment",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=0.47"]
+gui = ["PySide6-Essentials>=6.5"]
+# Animated previews in the GUI's Discover tab (QtMultimedia lives in Addons)
+preview = ["PySide6-Addons>=6.5"]
+all = ["textual>=0.47", "PySide6-Essentials>=6.5", "PySide6-Addons>=6.5"]
+
+[project.urls]
+Homepage = "https://github.com/Chummychum4/limpaper"
+
+[project.scripts]
+limpaper = "limpaper.cli:main"
+
+[project.gui-scripts]
+limpaper-gui = "limpaper.cli:main_gui"
+
+[tool.setuptools.dynamic]
+version = { attr = "limpaper.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+limpaper = ["assets/*", "tui/*.tcss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
