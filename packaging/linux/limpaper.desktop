@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=limpaper
+GenericName=Live wallpapers
+Comment=Browse, download and play animated wallpapers
+Exec=limpaper gui
+Icon=limpaper
+Terminal=false
+Categories=Utility;Settings;DesktopSettings;
+Keywords=wallpaper;live;animated;video;background;
